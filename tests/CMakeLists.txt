@@ -1,5 +1,8 @@
 add_library(rca_doctest INTERFACE)
 target_include_directories(rca_doctest SYSTEM INTERFACE "${PROJECT_SOURCE_DIR}/third_party")
+# Includes the real standard headers instead of doctest's forward declarations of std types,
+# which newer MSVC standard libraries reject when a test prints a std::string_view.
+target_compile_definitions(rca_doctest INTERFACE DOCTEST_CONFIG_USE_STD_HEADERS)
 
 add_executable(rca_tests
     main.cpp
