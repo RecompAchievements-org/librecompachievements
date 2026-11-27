@@ -1,0 +1,54 @@
+# Personal planning notes, not published
+plans/
+
+# Build output (CMake)
+build/
+out/
+cmake-build-*/
+install/
+CMakeUserPresets.json
+CMakeCache.txt
+CMakeFiles/
+compile_commands.json
+Testing/
+
+# Compiled files
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.so.*
+*.dylib
+*.dll
+*.exe
+*.pdb
+*.ilk
+*.exp
+
+# IDE and editor files
+.vscode/
+.idea/
+.vs/
+*.swp
+.cache/
+
+# Coverage, profiling, and fuzzing output
+*.profraw
+*.gcda
+*.gcno
+crash-*
+leak-*
+timeout-*
+
+# Python virtual environment for the mock server
+.venv/
+__pycache__/
+
+# Local environment files
+.env*
+!.env.example
+
+# OS files
+.DS_Store
+Thumbs.db
