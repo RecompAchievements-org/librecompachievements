@@ -1,0 +1,219 @@
+# CI for the SDK on every pull request into develop/main.
+#
+# There is no `push` trigger on purpose: GitHub runs PR checks on the PR's merge commit, so the
+# merged code is already tested. To test a branch outside a PR, start the workflow by hand
+# (Actions > CI > Run workflow).
+#
+# The `CI result` job always runs and fails if any job failed or was cancelled: it is the single
+# check to mark as required in branch protection.
+#
+# Actions and the Steam Runtime image are pinned (supply-chain safety): actions to full commit
+# SHAs with the version in a comment, the image to its digest. To update one, resolve the new
+# release tag (or image tag) to its SHA or digest and replace both together.
+
+name: CI
+
+on:
+  pull_request:
+    branches: [develop, main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A newer push to the same PR cancels the run that is still going.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  format:
+    name: Format
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Same major version as the one developers use locally (see .clang-format).
+      - name: Install clang-format
+        run: pipx install clang-format==23.1.5
+
+      - name: Check formatting
+        run: |
+          git ls-files '*.c' '*.h' '*.cpp' '*.hpp' ':!:third_party/' \
+            | xargs clang-format --dry-run --Werror
+
+  linux:
+    name: Linux (${{ matrix.compiler }}, ${{ matrix.linkage }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - compiler: gcc
+            cc: gcc
+            cxx: g++
+            linkage: static
+            shared: "OFF"
+          - compiler: clang
+            cc: clang
+            cxx: clang++
+            linkage: shared
+            shared: "ON"
+    env:
+      CC: ${{ matrix.cc }}
+      CXX: ${{ matrix.cxx }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Ninja
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      - name: Configure
+        run: cmake --preset ci -DBUILD_SHARED_LIBS=${{ matrix.shared }}
+
+      - name: Build
+        run: cmake --build --preset ci
+
+      - name: Test
+        run: ctest --preset ci
+
+      # Installs the SDK and builds a separate project against it with find_package.
+      - name: Test installed package
+        run: |
+          cmake --install build/ci --prefix "$RUNNER_TEMP/rca"
+          cmake -S tests/package -B build/package -G Ninja -DCMAKE_PREFIX_PATH="$RUNNER_TEMP/rca"
+          cmake --build build/package
+          ./build/package/rca_package_test
+
+  sanitizers:
+    name: Sanitizers (${{ matrix.preset }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        preset: [asan, tsan]
+    env:
+      CC: clang
+      CXX: clang++
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Ninja
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      # ThreadSanitizer can't map its shadow memory with the runner kernel's default ASLR entropy.
+      - name: Lower ASLR entropy for ThreadSanitizer
+        if: matrix.preset == 'tsan'
+        run: sudo sysctl vm.mmap_rnd_bits=28
+
+      - name: Configure
+        run: cmake --preset ${{ matrix.preset }}
+
+      - name: Build
+        run: cmake --build --preset ${{ matrix.preset }}
+
+      - name: Test
+        run: ctest --preset ${{ matrix.preset }}
+
+  tidy:
+    name: clang-tidy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      CC: clang
+      CXX: clang++
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Ninja and clang-tidy
+        run: sudo apt-get update && sudo apt-get install -y ninja-build clang-tidy
+
+      - name: Configure
+        run: cmake --preset tidy
+
+      - name: Build with clang-tidy
+        run: cmake --build --preset tidy
+
+  steam-runtime:
+    name: Steam Runtime (sniper, GCC 10)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    # The build environment of Steam games for Linux and the Steam Deck: binaries built here run
+    # on SteamOS. Its GCC 10 and CMake 3.25 are also the oldest toolchain the SDK supports.
+    container:
+      image: registry.gitlab.steamos.cloud/steamrt/sniper/sdk@sha256:bb30053d3cd19d35c76ae69b2790dbaa1430448006f8240cb6d7e723f2d1940e # latest on 2026-11-27
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Configure
+        run: cmake --preset ci
+
+      - name: Build
+        run: cmake --build --preset ci
+
+      - name: Test
+        run: ctest --preset ci
+
+  macos:
+    name: macOS (Apple Clang)
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Ninja
+        run: brew install ninja
+
+      - name: Configure
+        run: cmake --preset ci
+
+      - name: Build
+        run: cmake --build --preset ci
+
+      - name: Test
+        run: ctest --preset ci
+
+  windows:
+    name: Windows (MSVC)
+    runs-on: windows-2025
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Configure
+        run: cmake --preset msvc
+
+      - name: Build
+        run: cmake --build --preset msvc
+
+      - name: Test
+        run: ctest --preset msvc
+
+  result:
+    name: CI result
+    if: always()
+    needs: [format, linux, sanitizers, tidy, steam-runtime, macos, windows]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check job results
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "Job results: $RESULTS"
+          for result in $RESULTS; do
+            if [ "$result" != "success" ]; then
+              echo "::error::A CI job ended with '$result'."
+              exit 1
+            fi
+          done
