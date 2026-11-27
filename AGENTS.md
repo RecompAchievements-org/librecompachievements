@@ -46,11 +46,40 @@ online session can stay hardcore; unlocks from a session played fully offline sy
   both licenses and inside GPL-2.0 recomps: no copyleft, proprietary, "non-commercial only", or
   Apache-2.0-only dependencies. Flag any dependency before adding it.
 
+## Layout and commands
+
+| Path | Purpose |
+|---|---|
+| `include/rca/` | Public C API. Only plain C types and functions, marked `RCA_API`; no C++ types cross it |
+| `src/` | Implementation in C++17 |
+| `cmake/` | Warning flags, the `version.h` template, and the package config template |
+| `tests/` | doctest unit tests, a C header test, and `tests/package` (an installed-package consumer) |
+| `examples/` | Example programs that use the SDK |
+| `third_party/` | Vendored libraries, each listed with version and license in `third_party/README.md` |
+| `CMakePresets.json` | `debug`, `release`, `ci`, `asan`, `tsan`, `tidy`, `msvc` |
+| `.github/workflows/ci.yml` | CI on PRs into `develop`/`main`, summarized by the `CI result` check |
+
+Before handing work back, run `cmake --preset ci`, `cmake --build --preset ci`, and
+`ctest --preset ci`, plus `clang-format --dry-run --Werror` on the changed C and C++ files. Run
+the `asan`, `tsan`, and `tidy` presets when changing threads, memory handling, or many sources.
+
+- The version is set in the root `CMakeLists.txt` (`project(VERSION …)` and
+  `RCA_VERSION_PRERELEASE`); `rca/version.h` and `rca/export.h` are generated into the build
+  folder, never committed.
+- The oldest supported toolchain is the Steam Runtime's (GCC 10, CMake 3.25; CI checks it). C++17
+  only: no C++20 features. Public headers stay valid C99.
+
 ## Working conventions
 
 - Make the smallest change that solves the task; don't refactor unrelated code.
 - Match the existing style of the file you're editing. Prefer clear names over comments.
 - Don't add new top-level folders, build systems, package managers, or CI without asking.
+- CI must stay green: a PR isn't ready until the **`CI result`** check passes.
+- GitHub Actions are pinned to full commit SHAs with the version in a comment, and the Steam
+  Runtime image to its digest. Update the pin and comment together; ask before adding any new
+  action, especially third-party ones.
+- Vendored libraries go in `third_party/<name>/` with their license file, unmodified, and get a row
+  in `third_party/README.md`.
 - Before any task that touches Git, check the real state first (`git fetch`,
   `git branch --show-current`, `git status`); the owner commits and merges between sessions.
 
@@ -61,6 +90,7 @@ online session can stay hardcore; unlocks from a session played fully offline sy
 - Commit messages: [Conventional Commits](https://www.conventionalcommits.org/), title at most
   50 characters (`feat(sdk): queue unlocks on disk`). Scope with the area changed, or `repo`.
 - Never stage secrets, build output, or local tooling folders.
+- Every user-visible change gets a line under `[Unreleased]` in `CHANGELOG.md`.
 
 ## Rules
 
